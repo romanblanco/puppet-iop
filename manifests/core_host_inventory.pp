@@ -33,6 +33,7 @@ class iop::core_host_inventory (
   include iop::database
 
   $service_name = 'iop-core-host-inventory'
+  $api_port = 8081
   $database_username_secret_name = "${service_name}-database-username"
   $database_password_secret_name = "${service_name}-database-password"
   $database_name_secret_name = "${service_name}-database-name"
@@ -261,7 +262,7 @@ class iop::core_host_inventory (
         'Exec'          => 'python run_gunicorn.py',
         'Environment'   => [
           'KAFKA_BOOTSTRAP_SERVERS=iop-core-kafka:9092',
-          'LISTEN_PORT=8081',
+          "LISTEN_PORT=${api_port}",
           'BYPASS_RBAC=true',
           'USE_SUBMAN_ID=true',
         ],
