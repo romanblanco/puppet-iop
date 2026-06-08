@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.0](https://github.com/theforeman/puppet-iop/tree/0.9.0) (2026-06-08)
+
+[Full Changelog](https://github.com/theforeman/puppet-iop/compare/0.8.0...0.9.0)
+
+**Implemented enhancements:**
+
+- Enable ipv6 in core\_network ([pfreybur](https://github.com/pfreybur))
+
 ## [0.8.0](https://github.com/theforeman/puppet-iop/tree/0.8.0) (2026-05-11)
 
 [Full Changelog](https://github.com/theforeman/puppet-iop/compare/0.7.0...0.8.0)
