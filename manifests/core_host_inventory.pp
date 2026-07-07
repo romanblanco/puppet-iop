@@ -100,27 +100,34 @@ class iop::core_host_inventory (
     owner => $database_user,
   }
 
+  # TODO(RHINENG-26911): remove this view and the FDW define once Cyndi
+  # decommission completes across all IoP services.
+  #
+  # Staleness intervals are hardcoded HBI defaults (29h, 7d, 30d).
+  # Per-org custom staleness from hbi.staleness is not supported.
   $remote_view_expected_columns = "ARRAY['id','account','display_name','created','updated','stale_timestamp','stale_warning_timestamp','culled_timestamp','tags','system_profile','insights_id','reporter','per_reporter_staleness','org_id','groups','last_check_in']"
 
   $remote_view_command = @("EOM")
     CREATE OR REPLACE VIEW "inventory"."hosts" AS SELECT
-      id,
-      account,
-      display_name,
-      created_on as created,
-      modified_on as updated,
-      stale_timestamp,
-      stale_timestamp + INTERVAL '1' DAY * '7' AS stale_warning_timestamp,
-      stale_timestamp + INTERVAL '1' DAY * '14' AS culled_timestamp,
-      tags_alt as tags,
-      system_profile_facts as system_profile,
-      (canonical_facts ->> 'insights_id')::uuid as insights_id,
-      reporter,
-      per_reporter_staleness,
-      org_id,
-      groups,
-      last_check_in
-    FROM hbi.hosts WHERE (canonical_facts->'insights_id' IS NOT NULL);
+      h.id,
+      h.account,
+      h.display_name,
+      h.created_on as created,
+      h.modified_on as updated,
+      h.last_check_in + INTERVAL '29 hours' AS stale_timestamp,
+      h.last_check_in + INTERVAL '7 days' AS stale_warning_timestamp,
+      h.last_check_in + INTERVAL '30 days' AS culled_timestamp,
+      h.tags_alt as tags,
+      jsonb_build_object('operating_system', sps.operating_system, 'host_type', sps.host_type, 'owner_id', sps.owner_id) as system_profile,
+      h.insights_id,
+      h.reporter,
+      h.per_reporter_staleness,
+      h.org_id,
+      h.groups,
+      h.last_check_in
+    FROM hbi.hosts h
+    LEFT JOIN hbi.system_profiles_static sps ON sps.org_id = h.org_id AND sps.host_id = h.id
+    WHERE h.insights_id != '00000000-0000-0000-0000-000000000000';
     | EOM
 
   postgresql_psql { 'create_or_replace_remote_view_inventory_hosts':
