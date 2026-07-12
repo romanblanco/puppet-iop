@@ -25,6 +25,10 @@ topics=(
   "vulnerability.evaluator.upload"
   "vulnerability.grouper.inventory.upload"
   "vulnerability.grouper.advisor.upload"
+  "platform.upload.compliance"
+  "platform.notifications.ingress"
+  "platform.remediation-updates.compliance"
+  "platform.inventory.host-apps"
 )
 
 if ! [[ -v IOP_CORE_KAFKA ]]; then

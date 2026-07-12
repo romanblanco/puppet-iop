@@ -159,6 +159,21 @@ describe 'basic installation' do
       it { is_expected.to be_running }
       it { is_expected.to be_enabled }
     end
+
+    describe service('iop-service-compliance-backend-api') do
+      it { is_expected.to be_running }
+      it { is_expected.to be_enabled }
+    end
+
+    describe service('iop-service-compliance-backend-consumer') do
+      it { is_expected.to be_running }
+      it { is_expected.to be_enabled }
+    end
+
+    describe service('iop-service-compliance-backend-sidekiq') do
+      it { is_expected.to be_running }
+      it { is_expected.to be_enabled }
+    end
   end
 
   context 'with ensure => absent' do
@@ -236,6 +251,21 @@ describe 'basic installation' do
     end
 
     describe service('iop-service-remediations-api') do
+      it { is_expected.not_to be_running }
+      it { is_expected.not_to be_enabled }
+    end
+
+    describe service('iop-service-compliance-backend-api') do
+      it { is_expected.not_to be_running }
+      it { is_expected.not_to be_enabled }
+    end
+
+    describe service('iop-service-compliance-backend-consumer') do
+      it { is_expected.not_to be_running }
+      it { is_expected.not_to be_enabled }
+    end
+
+    describe service('iop-service-compliance-backend-sidekiq') do
       it { is_expected.not_to be_running }
       it { is_expected.not_to be_enabled }
     end
