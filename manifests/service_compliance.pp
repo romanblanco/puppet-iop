@@ -21,8 +21,10 @@
 # $database_port:: Port for the compliance database
 #
 class iop::service_compliance (
-  String[1] $image                    = 'quay.io/iop/compliance-backend:foreman-3.18',
-  String[1] $ssg_image                = 'quay.io/iop/compliance-ssg:foreman-3.18',
+  # TODO: Replace with quay.io/iop/compliance-backend:<tag> once RHINENG-24701 lands
+  String[1] $image                    = 'quay.io/rblanco/compliance-backend:iop-devel',
+  # TODO: Replace with quay.io/iop/compliance-ssg:<tag> once RHINENG-24701 lands
+  String[1] $ssg_image                = 'quay.io/rblanco/compliance-ssg-upstream:latest',
   Enum['present', 'absent'] $ensure   = 'present',
   String[1] $database_name            = 'compliance_db',
   String[1] $database_user            = 'compliance_admin',
@@ -37,7 +39,7 @@ class iop::service_compliance (
   include iop::core_host_inventory
 
   $service_name = 'iop-service-compliance'
-  $ssg_container_name = 'iop-service-compl-ssg'
+  $ssg_container_name = 'iop-service-compliance-backend-ssg'
   $ssg_port = 8088
   $host_inventory_url = "http://${iop::core_host_inventory::service_name}-api:${iop::core_host_inventory::api_port}"
   $ssg_url = "http://${ssg_container_name}:${ssg_port}"
@@ -61,12 +63,21 @@ class iop::service_compliance (
     'KAFKA_TOPIC_INVENTORY_HOST_APPS=platform.inventory.host-apps',
   ]
 
+  $common_secrets = [
+    "${database_username_secret_name},type=env,target=POSTGRESQL_USER",
+    "${database_password_secret_name},type=env,target=POSTGRESQL_PASSWORD",
+    "${database_name_secret_name},type=env,target=POSTGRESQL_DATABASE",
+    "${database_host_secret_name},type=env,target=POSTGRESQL_HOST",
+    "${database_port_secret_name},type=env,target=POSTGRESQL_PORT",
+  ]
+
   $common_env = [
     'DISABLE_RBAC=true',
     'RAILS_ENV=foreman',
     'RAILS_LOG_TO_STDOUT=true',
     'PATH_PREFIX=/api',
     'APP_NAME=compliance-backend',
+    'SECRET_KEY_BASE=foreman-iop-dev-secret-key-base-not-for-production-use',
     'RUBY_YJIT_ENABLE=true',
     'SETTINGS__REPORT_DOWNLOAD_SSL_ONLY=false',
     'MAX_INIT_TIMEOUT_SECONDS=120',
@@ -116,6 +127,13 @@ class iop::service_compliance (
     locale   => 'en_US.utf8',
   }
 
+  postgresql_psql { "create_extensions_${database_name}":
+    db      => $database_name,
+    command => 'CREATE EXTENSION IF NOT EXISTS dblink; CREATE EXTENSION IF NOT EXISTS pgcrypto;',
+    unless  => "SELECT 1 FROM pg_extension WHERE extname = 'dblink'",
+    require => Postgresql::Server::Db[$database_name],
+  }
+
   iop::postgresql_fdw { 'compliance':
     database_name        => $database_name,
     database_user        => $database_user,
@@ -123,6 +141,7 @@ class iop::service_compliance (
     remote_database_name => $iop::core_host_inventory::database_name,
     remote_user          => $iop::core_host_inventory::database_user,
     remote_password      => $iop::core_host_inventory::database_password,
+    expected_columns     => $iop::core_host_inventory::remote_view_expected_columns,
     require              => [
       Postgresql::Server::Db[$database_name],
       Postgresql::Server::Schema['inventory'],
@@ -130,7 +149,7 @@ class iop::service_compliance (
     ],
   }
 
-  podman::quadlet { 'iop-service-compl-dbmigrate':
+  podman::quadlet { 'iop-service-compliance-backend-migrate':
     ensure       => $ensure,
     quadlet_type => 'container',
     user         => 'root',
@@ -156,25 +175,19 @@ class iop::service_compliance (
       },
       'Container' => {
         'Image'         => $image,
-        'ContainerName' => 'iop-service-compl-dbmigrate',
+        'ContainerName' => 'iop-service-compliance-backend-migrate',
         'Network'       => 'iop-core-network',
-        'Exec'          => '/bin/sh -c "$HOME/scripts/check_migration_status_and_ssg_synced.sh"',
+        'Exec'          => 'sh -c "bundle exec rake db:migrate --trace"',
         'Volume'        => $socket_volume,
         'Environment'   => $common_env + [
           'RUBY_GC_HEAP_OLDOBJECT_LIMIT_FACTOR=2.0',
         ],
-        'Secret'        => [
-          "${database_username_secret_name},type=env,target=POSTGRES_USER",
-          "${database_password_secret_name},type=env,target=POSTGRES_PASSWORD",
-          "${database_name_secret_name},type=env,target=POSTGRES_DB",
-          "${database_host_secret_name},type=env,target=POSTGRES_HOST",
-          "${database_port_secret_name},type=env,target=POSTGRES_PORT",
-        ],
+        'Secret'        => $common_secrets,
       },
     },
   }
 
-  podman::quadlet { 'iop-service-compl-service':
+  podman::quadlet { 'iop-service-compliance-backend-api':
     ensure       => $ensure,
     quadlet_type => 'container',
     user         => 'root',
@@ -192,13 +205,13 @@ class iop::service_compliance (
     settings     => {
       'Unit'      => {
         'Description' => 'Compliance Service',
-        'Wants'       => ['iop-service-compl-dbmigrate.service'],
-        'After'       => ['iop-service-compl-dbmigrate.service'],
-        'Requires'    => ['iop-service-compl-dbmigrate.service'],
+        'Wants'       => ['iop-service-compliance-backend-migrate.service'],
+        'After'       => ['iop-service-compliance-backend-migrate.service'],
+        'Requires'    => ['iop-service-compliance-backend-migrate.service'],
       },
       'Container' => {
         'Image'         => $image,
-        'ContainerName' => 'iop-service-compl-service',
+        'ContainerName' => 'iop-service-compliance-backend-api',
         'Network'       => 'iop-core-network',
         'Volume'        => $socket_volume,
         'Environment'   => $common_env + [
@@ -211,13 +224,7 @@ class iop::service_compliance (
           'OLD_PATH_PREFIX=/r/insights/platform',
           'RUBY_GC_HEAP_OLDOBJECT_LIMIT_FACTOR=1.2',
         ],
-        'Secret'        => [
-          "${database_username_secret_name},type=env,target=POSTGRES_USER",
-          "${database_password_secret_name},type=env,target=POSTGRES_PASSWORD",
-          "${database_name_secret_name},type=env,target=POSTGRES_DB",
-          "${database_host_secret_name},type=env,target=POSTGRES_HOST",
-          "${database_port_secret_name},type=env,target=POSTGRES_PORT",
-        ],
+        'Secret'        => $common_secrets,
       },
       'Service'   => {
         'Environment' => 'REGISTRY_AUTH_FILE=/etc/foreman/registry-auth.json',
@@ -227,7 +234,7 @@ class iop::service_compliance (
     },
   }
 
-  podman::quadlet { 'iop-service-compl-ssg':
+  podman::quadlet { 'iop-service-compliance-backend-ssg':
     ensure       => $ensure,
     quadlet_type => 'container',
     user         => 'root',
@@ -249,55 +256,7 @@ class iop::service_compliance (
     },
   }
 
-  podman::quadlet { 'iop-service-compl-sidekiq':
-    ensure       => $ensure,
-    quadlet_type => 'container',
-    user         => 'root',
-    require      => [
-      Postgresql::Server::Db[$database_name],
-      Iop::Postgresql_fdw['compliance'],
-    ],
-    subscribe    => [
-      Podman::Secret[$database_username_secret_name],
-      Podman::Secret[$database_password_secret_name],
-      Podman::Secret[$database_name_secret_name],
-      Podman::Secret[$database_host_secret_name],
-      Podman::Secret[$database_port_secret_name],
-    ],
-    settings     => {
-      'Unit'      => {
-        'Description' => 'Compliance Sidekiq Service',
-        'Wants'       => ['iop-service-compl-dbmigrate.service'],
-        'After'       => ['iop-service-compl-dbmigrate.service'],
-        'Requires'    => ['iop-service-compl-dbmigrate.service'],
-      },
-      'Container' => {
-        'Image'         => $image,
-        'ContainerName' => 'iop-service-compl-sidekiq',
-        'Network'       => 'iop-core-network',
-        'Volume'        => $socket_volume,
-        'Environment'   => $common_env + [
-          'APPLICATION_TYPE=compliance-sidekiq',
-          'SIDEKIQ_CONCURRENCY=1',
-          'MALLOC_ARENA_MAX=2',
-        ],
-        'Secret'        => [
-          "${database_username_secret_name},type=env,target=POSTGRES_USER",
-          "${database_password_secret_name},type=env,target=POSTGRES_PASSWORD",
-          "${database_name_secret_name},type=env,target=POSTGRES_DB",
-          "${database_host_secret_name},type=env,target=POSTGRES_HOST",
-          "${database_port_secret_name},type=env,target=POSTGRES_PORT",
-        ],
-      },
-      'Service'   => {
-        'Environment' => 'REGISTRY_AUTH_FILE=/etc/foreman/registry-auth.json',
-        'Restart'     => 'on-failure',
-      },
-      'Install'   => { 'WantedBy' => 'default.target' },
-    },
-  }
-
-  podman::quadlet { 'iop-service-compl-inventory-consumer':
+  podman::quadlet { 'iop-service-compliance-backend-consumer':
     ensure       => $ensure,
     quadlet_type => 'container',
     user         => 'root',
@@ -315,26 +274,20 @@ class iop::service_compliance (
     settings     => {
       'Unit'      => {
         'Description' => 'Compliance Inventory Consumer Service',
-        'Wants'       => ['iop-service-compl-dbmigrate.service'],
-        'After'       => ['iop-service-compl-dbmigrate.service'],
-        'Requires'    => ['iop-service-compl-dbmigrate.service'],
+        'Wants'       => ['iop-service-compliance-backend-migrate.service'],
+        'After'       => ['iop-service-compliance-backend-migrate.service', 'iop-core-kafka.service'],
+        'Requires'    => ['iop-service-compliance-backend-migrate.service'],
       },
       'Container' => {
         'Image'         => $image,
-        'ContainerName' => 'iop-service-compl-inventory-consumer',
+        'ContainerName' => 'iop-service-compliance-backend-consumer',
         'Network'       => 'iop-core-network',
         'Volume'        => $socket_volume,
         'Environment'   => $common_env + [
           'APPLICATION_TYPE=compliance-inventory',
           'MALLOC_ARENA_MAX=2',
         ],
-        'Secret'        => [
-          "${database_username_secret_name},type=env,target=POSTGRES_USER",
-          "${database_password_secret_name},type=env,target=POSTGRES_PASSWORD",
-          "${database_name_secret_name},type=env,target=POSTGRES_DB",
-          "${database_host_secret_name},type=env,target=POSTGRES_HOST",
-          "${database_port_secret_name},type=env,target=POSTGRES_PORT",
-        ],
+        'Secret'        => $common_secrets,
       },
       'Service'   => {
         'Environment' => 'REGISTRY_AUTH_FILE=/etc/foreman/registry-auth.json',
@@ -344,7 +297,7 @@ class iop::service_compliance (
     },
   }
 
-  podman::quadlet { 'iop-service-compl-import-ssg':
+  podman::quadlet { 'iop-service-compliance-backend-import-ssg':
     ensure         => $ensure,
     quadlet_type   => 'container',
     user           => 'root',
@@ -363,24 +316,18 @@ class iop::service_compliance (
     settings       => {
       'Unit'      => {
         'Description' => 'Compliance Import SSG Job',
-        'Wants'       => ['iop-service-compl-dbmigrate.service'],
-        'After'       => ['iop-service-compl-dbmigrate.service'],
+        'Wants'       => ['iop-service-compliance-backend-migrate.service'],
+        'After'       => ['iop-service-compliance-backend-migrate.service'],
       },
       'Container' => {
         'Image'         => $image,
-        'ContainerName' => 'iop-service-compl-import-ssg',
+        'ContainerName' => 'iop-service-compliance-backend-import-ssg',
         'Network'       => 'iop-core-network',
         'Volume'        => $socket_volume,
         'Environment'   => $common_env + [
           'APPLICATION_TYPE=compliance-import-ssg',
         ],
-        'Secret'        => [
-          "${database_username_secret_name},type=env,target=POSTGRES_USER",
-          "${database_password_secret_name},type=env,target=POSTGRES_PASSWORD",
-          "${database_name_secret_name},type=env,target=POSTGRES_DB",
-          "${database_host_secret_name},type=env,target=POSTGRES_HOST",
-          "${database_port_secret_name},type=env,target=POSTGRES_PORT",
-        ],
+        'Secret'        => $common_secrets,
       },
       'Service'   => {
         'Environment' => 'REGISTRY_AUTH_FILE=/etc/foreman/registry-auth.json',
@@ -394,12 +341,12 @@ class iop::service_compliance (
 
   $timer_ensure = $ensure ? { 'present' => true, default => false }
 
-  systemd::timer { 'iop-service-compl-import-ssg.timer':
+  systemd::timer { 'iop-service-compliance-backend-import-ssg.timer':
     ensure        => $ensure,
     enable        => $timer_ensure,
     active        => $timer_ensure,
-    service_unit  => 'iop-service-compl-import-ssg.service',
-    timer_content => file('iop/iop-service-compl-import-ssg.timer'),
-    require       => Podman::Quadlet['iop-service-compl-import-ssg'],
+    service_unit  => 'iop-service-compliance-backend-import-ssg.service',
+    timer_content => file('iop/iop-service-compliance-backend-import-ssg.timer'),
+    require       => Podman::Quadlet['iop-service-compliance-backend-import-ssg'],
   }
 }

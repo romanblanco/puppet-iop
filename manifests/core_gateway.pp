@@ -12,7 +12,7 @@
 #
 class iop::core_gateway (
   Stdlib::Fqdn $foreman_servername = $facts['networking']['fqdn'],
-  String[1] $image = 'quay.io/iop/gateway:foreman-3.18',
+  String[1] $image = 'quay.io/rblanco/iop-gateway:iop-devel',
   Enum['present', 'absent'] $ensure = 'present',
 ) {
   include podman

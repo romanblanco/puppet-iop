@@ -21,44 +21,39 @@ describe 'basic installation' do
       end
     end
 
-    describe service('iop-service-compl-dbmigrate') do
+    describe service('iop-service-compliance-backend-migrate') do
       it { is_expected.to be_enabled }
     end
 
-    describe service('iop-service-compl-service') do
+    describe service('iop-service-compliance-backend-api') do
       it { is_expected.to be_running }
       it { is_expected.to be_enabled }
     end
 
-    describe service('iop-service-compl-ssg') do
+    describe service('iop-service-compliance-backend-ssg') do
       it { is_expected.to be_running }
       it { is_expected.to be_enabled }
     end
 
-    describe service('iop-service-compl-sidekiq') do
+    describe service('iop-service-compliance-backend-consumer') do
       it { is_expected.to be_running }
       it { is_expected.to be_enabled }
     end
 
-    describe service('iop-service-compl-inventory-consumer') do
-      it { is_expected.to be_running }
-      it { is_expected.to be_enabled }
-    end
-
-    describe service('iop-service-compl-import-ssg') do
+    describe service('iop-service-compliance-backend-import-ssg') do
       it { is_expected.not_to be_running }
     end
 
-    describe command('systemctl is-enabled iop-service-compl-import-ssg') do
+    describe command('systemctl is-enabled iop-service-compliance-backend-import-ssg') do
       its(:stdout) { should match /generated/ }
     end
 
-    describe service('iop-service-compl-import-ssg.timer') do
+    describe service('iop-service-compliance-backend-import-ssg.timer') do
       it { is_expected.to be_enabled }
       it { is_expected.to be_running }
     end
 
-    describe file('/etc/systemd/system/iop-service-compl-import-ssg.timer') do
+    describe file('/etc/systemd/system/iop-service-compliance-backend-import-ssg.timer') do
       it { is_expected.to be_file }
       its(:content) { should match /OnBootSec=5min/ }
       its(:content) { should match /OnUnitActiveSec=5min/ }
@@ -104,65 +99,56 @@ describe 'basic installation' do
       end
     end
 
-    describe service('iop-service-compl-dbmigrate') do
+    describe service('iop-service-compliance-backend-migrate') do
       it { is_expected.not_to be_enabled }
     end
 
-    describe service('iop-service-compl-service') do
+    describe service('iop-service-compliance-backend-api') do
       it { is_expected.not_to be_running }
       it { is_expected.not_to be_enabled }
     end
 
-    describe service('iop-service-compl-ssg') do
+    describe service('iop-service-compliance-backend-ssg') do
       it { is_expected.not_to be_running }
       it { is_expected.not_to be_enabled }
     end
 
-    describe service('iop-service-compl-sidekiq') do
+    describe service('iop-service-compliance-backend-consumer') do
       it { is_expected.not_to be_running }
       it { is_expected.not_to be_enabled }
     end
 
-    describe service('iop-service-compl-inventory-consumer') do
+    describe service('iop-service-compliance-backend-import-ssg') do
       it { is_expected.not_to be_running }
       it { is_expected.not_to be_enabled }
     end
 
-    describe service('iop-service-compl-import-ssg') do
+    describe service('iop-service-compliance-backend-import-ssg.timer') do
       it { is_expected.not_to be_running }
       it { is_expected.not_to be_enabled }
     end
 
-    describe service('iop-service-compl-import-ssg.timer') do
-      it { is_expected.not_to be_running }
-      it { is_expected.not_to be_enabled }
-    end
-
-    describe file('/etc/containers/systemd/iop-service-compl-dbmigrate.container') do
+    describe file('/etc/containers/systemd/iop-service-compliance-backend-migrate.container') do
       it { is_expected.not_to exist }
     end
 
-    describe file('/etc/containers/systemd/iop-service-compl-service.container') do
+    describe file('/etc/containers/systemd/iop-service-compliance-backend-api.container') do
       it { is_expected.not_to exist }
     end
 
-    describe file('/etc/containers/systemd/iop-service-compl-ssg.container') do
+    describe file('/etc/containers/systemd/iop-service-compliance-backend-ssg.container') do
       it { is_expected.not_to exist }
     end
 
-    describe file('/etc/containers/systemd/iop-service-compl-sidekiq.container') do
+    describe file('/etc/containers/systemd/iop-service-compliance-backend-consumer.container') do
       it { is_expected.not_to exist }
     end
 
-    describe file('/etc/containers/systemd/iop-service-compl-inventory-consumer.container') do
+    describe file('/etc/containers/systemd/iop-service-compliance-backend-import-ssg.container') do
       it { is_expected.not_to exist }
     end
 
-    describe file('/etc/containers/systemd/iop-service-compl-import-ssg.container') do
-      it { is_expected.not_to exist }
-    end
-
-    describe file('/etc/systemd/system/iop-service-compl-import-ssg.timer') do
+    describe file('/etc/systemd/system/iop-service-compliance-backend-import-ssg.timer') do
       it { is_expected.not_to exist }
     end
 
