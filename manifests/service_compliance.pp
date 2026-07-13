@@ -21,8 +21,10 @@
 # $database_port:: Port for the compliance database
 #
 class iop::service_compliance (
-  String[1] $image                    = 'quay.io/iop/compliance-backend:foreman-3.18',
-  String[1] $ssg_image                = 'quay.io/iop/compliance-ssg:foreman-3.18',
+  # TODO: Replace with quay.io/iop/compliance-backend:<tag> once RHINENG-24701 lands
+  String[1] $image                    = 'quay.io/rblanco/compliance-backend:foreman-iop-dev',
+  # TODO: Replace with quay.io/iop/compliance-ssg:<tag> once RHINENG-24701 lands
+  String[1] $ssg_image                = 'quay.io/rblanco/compliance-ssg-upstream:latest',
   Enum['present', 'absent'] $ensure   = 'present',
   String[1] $database_name            = 'compliance_db',
   String[1] $database_user            = 'compliance_admin',
@@ -61,12 +63,21 @@ class iop::service_compliance (
     'KAFKA_TOPIC_INVENTORY_HOST_APPS=platform.inventory.host-apps',
   ]
 
+  $common_secrets = [
+    "${database_username_secret_name},type=env,target=POSTGRESQL_USER",
+    "${database_password_secret_name},type=env,target=POSTGRESQL_PASSWORD",
+    "${database_name_secret_name},type=env,target=POSTGRESQL_DATABASE",
+    "${database_host_secret_name},type=env,target=POSTGRESQL_HOST",
+    "${database_port_secret_name},type=env,target=POSTGRESQL_PORT",
+  ]
+
   $common_env = [
     'DISABLE_RBAC=true',
     'RAILS_ENV=foreman',
     'RAILS_LOG_TO_STDOUT=true',
     'PATH_PREFIX=/api',
     'APP_NAME=compliance-backend',
+    'SECRET_KEY_BASE=foreman-iop-dev-secret-key-base-not-for-production-use',
     'RUBY_YJIT_ENABLE=true',
     'SETTINGS__REPORT_DOWNLOAD_SSL_ONLY=false',
     'MAX_INIT_TIMEOUT_SECONDS=120',
@@ -116,6 +127,13 @@ class iop::service_compliance (
     locale   => 'en_US.utf8',
   }
 
+  postgresql_psql { "create_extensions_${database_name}":
+    db      => $database_name,
+    command => 'CREATE EXTENSION IF NOT EXISTS dblink; CREATE EXTENSION IF NOT EXISTS pgcrypto;',
+    unless  => "SELECT 1 FROM pg_extension WHERE extname = 'dblink'",
+    require => Postgresql::Server::Db[$database_name],
+  }
+
   iop::postgresql_fdw { 'compliance':
     database_name        => $database_name,
     database_user        => $database_user,
@@ -123,6 +141,7 @@ class iop::service_compliance (
     remote_database_name => $iop::core_host_inventory::database_name,
     remote_user          => $iop::core_host_inventory::database_user,
     remote_password      => $iop::core_host_inventory::database_password,
+    expected_columns     => $iop::core_host_inventory::remote_view_expected_columns,
     require              => [
       Postgresql::Server::Db[$database_name],
       Postgresql::Server::Schema['inventory'],
@@ -158,18 +177,12 @@ class iop::service_compliance (
         'Image'         => $image,
         'ContainerName' => 'iop-service-compl-dbmigrate',
         'Network'       => 'iop-core-network',
-        'Exec'          => '/bin/sh -c "$HOME/scripts/check_migration_status_and_ssg_synced.sh"',
+        'Exec'          => 'sh -c "bundle exec rake db:migrate --trace"',
         'Volume'        => $socket_volume,
         'Environment'   => $common_env + [
           'RUBY_GC_HEAP_OLDOBJECT_LIMIT_FACTOR=2.0',
         ],
-        'Secret'        => [
-          "${database_username_secret_name},type=env,target=POSTGRES_USER",
-          "${database_password_secret_name},type=env,target=POSTGRES_PASSWORD",
-          "${database_name_secret_name},type=env,target=POSTGRES_DB",
-          "${database_host_secret_name},type=env,target=POSTGRES_HOST",
-          "${database_port_secret_name},type=env,target=POSTGRES_PORT",
-        ],
+        'Secret'        => $common_secrets,
       },
     },
   }
@@ -211,13 +224,7 @@ class iop::service_compliance (
           'OLD_PATH_PREFIX=/r/insights/platform',
           'RUBY_GC_HEAP_OLDOBJECT_LIMIT_FACTOR=1.2',
         ],
-        'Secret'        => [
-          "${database_username_secret_name},type=env,target=POSTGRES_USER",
-          "${database_password_secret_name},type=env,target=POSTGRES_PASSWORD",
-          "${database_name_secret_name},type=env,target=POSTGRES_DB",
-          "${database_host_secret_name},type=env,target=POSTGRES_HOST",
-          "${database_port_secret_name},type=env,target=POSTGRES_PORT",
-        ],
+        'Secret'        => $common_secrets,
       },
       'Service'   => {
         'Environment' => 'REGISTRY_AUTH_FILE=/etc/foreman/registry-auth.json',
@@ -278,16 +285,10 @@ class iop::service_compliance (
         'Volume'        => $socket_volume,
         'Environment'   => $common_env + [
           'APPLICATION_TYPE=compliance-sidekiq',
-          'SIDEKIQ_CONCURRENCY=1',
+          'SIDEKIQ_CONCURRENCY=2',
           'MALLOC_ARENA_MAX=2',
         ],
-        'Secret'        => [
-          "${database_username_secret_name},type=env,target=POSTGRES_USER",
-          "${database_password_secret_name},type=env,target=POSTGRES_PASSWORD",
-          "${database_name_secret_name},type=env,target=POSTGRES_DB",
-          "${database_host_secret_name},type=env,target=POSTGRES_HOST",
-          "${database_port_secret_name},type=env,target=POSTGRES_PORT",
-        ],
+        'Secret'        => $common_secrets,
       },
       'Service'   => {
         'Environment' => 'REGISTRY_AUTH_FILE=/etc/foreman/registry-auth.json',
@@ -328,13 +329,7 @@ class iop::service_compliance (
           'APPLICATION_TYPE=compliance-inventory',
           'MALLOC_ARENA_MAX=2',
         ],
-        'Secret'        => [
-          "${database_username_secret_name},type=env,target=POSTGRES_USER",
-          "${database_password_secret_name},type=env,target=POSTGRES_PASSWORD",
-          "${database_name_secret_name},type=env,target=POSTGRES_DB",
-          "${database_host_secret_name},type=env,target=POSTGRES_HOST",
-          "${database_port_secret_name},type=env,target=POSTGRES_PORT",
-        ],
+        'Secret'        => $common_secrets,
       },
       'Service'   => {
         'Environment' => 'REGISTRY_AUTH_FILE=/etc/foreman/registry-auth.json',
@@ -374,13 +369,7 @@ class iop::service_compliance (
         'Environment'   => $common_env + [
           'APPLICATION_TYPE=compliance-import-ssg',
         ],
-        'Secret'        => [
-          "${database_username_secret_name},type=env,target=POSTGRES_USER",
-          "${database_password_secret_name},type=env,target=POSTGRES_PASSWORD",
-          "${database_name_secret_name},type=env,target=POSTGRES_DB",
-          "${database_host_secret_name},type=env,target=POSTGRES_HOST",
-          "${database_port_secret_name},type=env,target=POSTGRES_PORT",
-        ],
+        'Secret'        => $common_secrets,
       },
       'Service'   => {
         'Environment' => 'REGISTRY_AUTH_FILE=/etc/foreman/registry-auth.json',
