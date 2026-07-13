@@ -35,11 +35,6 @@ describe 'basic installation' do
       it { is_expected.to be_enabled }
     end
 
-    describe service('iop-service-compl-sidekiq') do
-      it { is_expected.to be_running }
-      it { is_expected.to be_enabled }
-    end
-
     describe service('iop-service-compl-inventory-consumer') do
       it { is_expected.to be_running }
       it { is_expected.to be_enabled }
@@ -118,11 +113,6 @@ describe 'basic installation' do
       it { is_expected.not_to be_enabled }
     end
 
-    describe service('iop-service-compl-sidekiq') do
-      it { is_expected.not_to be_running }
-      it { is_expected.not_to be_enabled }
-    end
-
     describe service('iop-service-compl-inventory-consumer') do
       it { is_expected.not_to be_running }
       it { is_expected.not_to be_enabled }
@@ -147,10 +137,6 @@ describe 'basic installation' do
     end
 
     describe file('/etc/containers/systemd/iop-service-compl-ssg.container') do
-      it { is_expected.not_to exist }
-    end
-
-    describe file('/etc/containers/systemd/iop-service-compl-sidekiq.container') do
       it { is_expected.not_to exist }
     end
 

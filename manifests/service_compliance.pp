@@ -256,48 +256,6 @@ class iop::service_compliance (
     },
   }
 
-  podman::quadlet { 'iop-service-compl-sidekiq':
-    ensure       => $ensure,
-    quadlet_type => 'container',
-    user         => 'root',
-    require      => [
-      Postgresql::Server::Db[$database_name],
-      Iop::Postgresql_fdw['compliance'],
-    ],
-    subscribe    => [
-      Podman::Secret[$database_username_secret_name],
-      Podman::Secret[$database_password_secret_name],
-      Podman::Secret[$database_name_secret_name],
-      Podman::Secret[$database_host_secret_name],
-      Podman::Secret[$database_port_secret_name],
-    ],
-    settings     => {
-      'Unit'      => {
-        'Description' => 'Compliance Sidekiq Service',
-        'Wants'       => ['iop-service-compl-dbmigrate.service'],
-        'After'       => ['iop-service-compl-dbmigrate.service'],
-        'Requires'    => ['iop-service-compl-dbmigrate.service'],
-      },
-      'Container' => {
-        'Image'         => $image,
-        'ContainerName' => 'iop-service-compl-sidekiq',
-        'Network'       => 'iop-core-network',
-        'Volume'        => $socket_volume,
-        'Environment'   => $common_env + [
-          'APPLICATION_TYPE=compliance-sidekiq',
-          'SIDEKIQ_CONCURRENCY=2',
-          'MALLOC_ARENA_MAX=2',
-        ],
-        'Secret'        => $common_secrets,
-      },
-      'Service'   => {
-        'Environment' => 'REGISTRY_AUTH_FILE=/etc/foreman/registry-auth.json',
-        'Restart'     => 'on-failure',
-      },
-      'Install'   => { 'WantedBy' => 'default.target' },
-    },
-  }
-
   podman::quadlet { 'iop-service-compl-inventory-consumer':
     ensure       => $ensure,
     quadlet_type => 'container',
@@ -317,7 +275,7 @@ class iop::service_compliance (
       'Unit'      => {
         'Description' => 'Compliance Inventory Consumer Service',
         'Wants'       => ['iop-service-compl-dbmigrate.service'],
-        'After'       => ['iop-service-compl-dbmigrate.service'],
+        'After'       => ['iop-service-compl-dbmigrate.service', 'iop-core-kafka.service'],
         'Requires'    => ['iop-service-compl-dbmigrate.service'],
       },
       'Container' => {
