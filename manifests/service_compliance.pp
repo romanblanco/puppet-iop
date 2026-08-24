@@ -21,8 +21,10 @@
 # $database_port:: Port for the compliance database
 #
 class iop::service_compliance (
-  String[1] $image                    = 'quay.io/iop/compliance-backend:foreman-3.18',
-  String[1] $ssg_image                = 'quay.io/iop/compliance-ssg:foreman-3.18',
+  # Dev override: upstream quay.io/iop/compliance-backend:foreman-3.18 not yet published — personal build for local IoP VMs.
+  String[1] $image                    = 'quay.io/rblanco/compliance-backend:iop-devel',
+  # Dev override: upstream quay.io/iop/compliance-ssg:foreman-3.18 not yet published (RHINENG-24701) — personal upstream-built SSG.
+  String[1] $ssg_image                = 'quay.io/rblanco/compliance-ssg-upstream:latest',
   Enum['present', 'absent'] $ensure   = 'present',
   String[1] $database_name            = 'compliance_db',
   String[1] $database_user            = 'compliance_admin',
