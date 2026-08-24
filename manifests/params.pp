@@ -7,4 +7,5 @@ class iop::params {
   $advisor_database_password = extlib::cache_data('iop_cache_data', 'advisor_db_password', extlib::random_password(32))
   $vmaas_database_password = extlib::cache_data('iop_cache_data', 'vmaas_db_password', extlib::random_password(32))
   $remediations_database_password = extlib::cache_data('iop_cache_data', 'remediations_db_password', extlib::random_password(32))
+  $compliance_database_password = extlib::cache_data('iop_cache_data', 'compliance_db_password', extlib::random_password(32))
 }

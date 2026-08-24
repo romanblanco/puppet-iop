@@ -38,7 +38,7 @@ class iop::service_compliance (
 
   $service_name = 'iop-service-compliance'
   $ssg_container_name = 'iop-service-compl-ssg'
-  $ssg_port = 8088
+  $ssg_port = 8080
   $host_inventory_url = "http://${iop::core_host_inventory::service_name}-api:${iop::core_host_inventory::api_port}"
   $ssg_url = "http://${ssg_container_name}:${ssg_port}"
   $database_username_secret_name = "${service_name}-database-username"
@@ -61,12 +61,21 @@ class iop::service_compliance (
     'KAFKA_TOPIC_INVENTORY_HOST_APPS=platform.inventory.host-apps',
   ]
 
+  $common_secrets = [
+    "${database_username_secret_name},type=env,target=POSTGRESQL_USER",
+    "${database_password_secret_name},type=env,target=POSTGRESQL_PASSWORD",
+    "${database_name_secret_name},type=env,target=POSTGRESQL_DATABASE",
+    "${database_host_secret_name},type=env,target=POSTGRESQL_HOST",
+    "${database_port_secret_name},type=env,target=POSTGRESQL_PORT",
+  ]
+
   $common_env = [
     'DISABLE_RBAC=true',
     'RAILS_ENV=foreman',
     'RAILS_LOG_TO_STDOUT=true',
     'PATH_PREFIX=/api',
     'APP_NAME=compliance-backend',
+    'SECRET_KEY_BASE=foreman-iop-dev-secret-key-base-not-for-production-use',
     'RUBY_YJIT_ENABLE=true',
     'SETTINGS__REPORT_DOWNLOAD_SSL_ONLY=false',
     'MAX_INIT_TIMEOUT_SECONDS=120',
@@ -116,18 +125,11 @@ class iop::service_compliance (
     locale   => 'en_US.utf8',
   }
 
-  iop::postgresql_fdw { 'compliance':
-    database_name        => $database_name,
-    database_user        => $database_user,
-    database_password    => $database_password,
-    remote_database_name => $iop::core_host_inventory::database_name,
-    remote_user          => $iop::core_host_inventory::database_user,
-    remote_password      => $iop::core_host_inventory::database_password,
-    require              => [
-      Postgresql::Server::Db[$database_name],
-      Postgresql::Server::Schema['inventory'],
-      Postgresql_psql['create_or_replace_remote_view_inventory_hosts'],
-    ],
+  postgresql_psql { "create_extensions_${database_name}":
+    db      => $database_name,
+    command => 'CREATE EXTENSION IF NOT EXISTS pgcrypto;',
+    unless  => "SELECT 1 FROM pg_extension WHERE extname = 'pgcrypto'",
+    require => Postgresql::Server::Db[$database_name],
   }
 
   podman::quadlet { 'iop-service-compl-dbmigrate':
@@ -136,7 +138,6 @@ class iop::service_compliance (
     user         => 'root',
     require      => [
       Postgresql::Server::Db[$database_name],
-      Iop::Postgresql_fdw['compliance'],
     ],
     subscribe    => [
       Podman::Secret[$database_username_secret_name],
@@ -158,18 +159,12 @@ class iop::service_compliance (
         'Image'         => $image,
         'ContainerName' => 'iop-service-compl-dbmigrate',
         'Network'       => 'iop-core-network',
-        'Exec'          => '/bin/sh -c "$HOME/scripts/check_migration_status_and_ssg_synced.sh"',
+        'Exec'          => 'sh -c "bundle exec rake db:migrate --trace"',
         'Volume'        => $socket_volume,
         'Environment'   => $common_env + [
           'RUBY_GC_HEAP_OLDOBJECT_LIMIT_FACTOR=2.0',
         ],
-        'Secret'        => [
-          "${database_username_secret_name},type=env,target=POSTGRES_USER",
-          "${database_password_secret_name},type=env,target=POSTGRES_PASSWORD",
-          "${database_name_secret_name},type=env,target=POSTGRES_DB",
-          "${database_host_secret_name},type=env,target=POSTGRES_HOST",
-          "${database_port_secret_name},type=env,target=POSTGRES_PORT",
-        ],
+        'Secret'        => $common_secrets,
       },
     },
   }
@@ -180,7 +175,6 @@ class iop::service_compliance (
     user         => 'root',
     require      => [
       Postgresql::Server::Db[$database_name],
-      Iop::Postgresql_fdw['compliance'],
     ],
     subscribe    => [
       Podman::Secret[$database_username_secret_name],
@@ -211,13 +205,7 @@ class iop::service_compliance (
           'OLD_PATH_PREFIX=/r/insights/platform',
           'RUBY_GC_HEAP_OLDOBJECT_LIMIT_FACTOR=1.2',
         ],
-        'Secret'        => [
-          "${database_username_secret_name},type=env,target=POSTGRES_USER",
-          "${database_password_secret_name},type=env,target=POSTGRES_PASSWORD",
-          "${database_name_secret_name},type=env,target=POSTGRES_DB",
-          "${database_host_secret_name},type=env,target=POSTGRES_HOST",
-          "${database_port_secret_name},type=env,target=POSTGRES_PORT",
-        ],
+        'Secret'        => $common_secrets,
       },
       'Service'   => {
         'Environment' => 'REGISTRY_AUTH_FILE=/etc/foreman/registry-auth.json',
@@ -249,61 +237,12 @@ class iop::service_compliance (
     },
   }
 
-  podman::quadlet { 'iop-service-compl-sidekiq':
-    ensure       => $ensure,
-    quadlet_type => 'container',
-    user         => 'root',
-    require      => [
-      Postgresql::Server::Db[$database_name],
-      Iop::Postgresql_fdw['compliance'],
-    ],
-    subscribe    => [
-      Podman::Secret[$database_username_secret_name],
-      Podman::Secret[$database_password_secret_name],
-      Podman::Secret[$database_name_secret_name],
-      Podman::Secret[$database_host_secret_name],
-      Podman::Secret[$database_port_secret_name],
-    ],
-    settings     => {
-      'Unit'      => {
-        'Description' => 'Compliance Sidekiq Service',
-        'Wants'       => ['iop-service-compl-dbmigrate.service'],
-        'After'       => ['iop-service-compl-dbmigrate.service'],
-        'Requires'    => ['iop-service-compl-dbmigrate.service'],
-      },
-      'Container' => {
-        'Image'         => $image,
-        'ContainerName' => 'iop-service-compl-sidekiq',
-        'Network'       => 'iop-core-network',
-        'Volume'        => $socket_volume,
-        'Environment'   => $common_env + [
-          'APPLICATION_TYPE=compliance-sidekiq',
-          'SIDEKIQ_CONCURRENCY=1',
-          'MALLOC_ARENA_MAX=2',
-        ],
-        'Secret'        => [
-          "${database_username_secret_name},type=env,target=POSTGRES_USER",
-          "${database_password_secret_name},type=env,target=POSTGRES_PASSWORD",
-          "${database_name_secret_name},type=env,target=POSTGRES_DB",
-          "${database_host_secret_name},type=env,target=POSTGRES_HOST",
-          "${database_port_secret_name},type=env,target=POSTGRES_PORT",
-        ],
-      },
-      'Service'   => {
-        'Environment' => 'REGISTRY_AUTH_FILE=/etc/foreman/registry-auth.json',
-        'Restart'     => 'on-failure',
-      },
-      'Install'   => { 'WantedBy' => 'default.target' },
-    },
-  }
-
   podman::quadlet { 'iop-service-compl-inventory-consumer':
     ensure       => $ensure,
     quadlet_type => 'container',
     user         => 'root',
     require      => [
       Postgresql::Server::Db[$database_name],
-      Iop::Postgresql_fdw['compliance'],
     ],
     subscribe    => [
       Podman::Secret[$database_username_secret_name],
@@ -316,7 +255,7 @@ class iop::service_compliance (
       'Unit'      => {
         'Description' => 'Compliance Inventory Consumer Service',
         'Wants'       => ['iop-service-compl-dbmigrate.service'],
-        'After'       => ['iop-service-compl-dbmigrate.service'],
+        'After'       => ['iop-service-compl-dbmigrate.service', 'iop-core-kafka.service'],
         'Requires'    => ['iop-service-compl-dbmigrate.service'],
       },
       'Container' => {
@@ -328,13 +267,46 @@ class iop::service_compliance (
           'APPLICATION_TYPE=compliance-inventory',
           'MALLOC_ARENA_MAX=2',
         ],
-        'Secret'        => [
-          "${database_username_secret_name},type=env,target=POSTGRES_USER",
-          "${database_password_secret_name},type=env,target=POSTGRES_PASSWORD",
-          "${database_name_secret_name},type=env,target=POSTGRES_DB",
-          "${database_host_secret_name},type=env,target=POSTGRES_HOST",
-          "${database_port_secret_name},type=env,target=POSTGRES_PORT",
+        'Secret'        => $common_secrets,
+      },
+      'Service'   => {
+        'Environment' => 'REGISTRY_AUTH_FILE=/etc/foreman/registry-auth.json',
+        'Restart'     => 'on-failure',
+      },
+      'Install'   => { 'WantedBy' => 'default.target' },
+    },
+  }
+
+  podman::quadlet { 'iop-service-compl-goodjob':
+    ensure       => $ensure,
+    quadlet_type => 'container',
+    user         => 'root',
+    require      => [
+      Postgresql::Server::Db[$database_name],
+    ],
+    subscribe    => [
+      Podman::Secret[$database_username_secret_name],
+      Podman::Secret[$database_password_secret_name],
+      Podman::Secret[$database_name_secret_name],
+      Podman::Secret[$database_host_secret_name],
+      Podman::Secret[$database_port_secret_name],
+    ],
+    settings     => {
+      'Unit'      => {
+        'Description' => 'Compliance GoodJob Worker',
+        'Wants'       => ['iop-service-compl-dbmigrate.service'],
+        'After'       => ['iop-service-compl-dbmigrate.service'],
+        'Requires'    => ['iop-service-compl-dbmigrate.service'],
+      },
+      'Container' => {
+        'Image'         => $image,
+        'ContainerName' => 'iop-service-compl-goodjob',
+        'Network'       => 'iop-core-network',
+        'Volume'        => $socket_volume,
+        'Environment'   => $common_env + [
+          'APPLICATION_TYPE=compliance-goodjob',
         ],
+        'Secret'        => $common_secrets,
       },
       'Service'   => {
         'Environment' => 'REGISTRY_AUTH_FILE=/etc/foreman/registry-auth.json',
@@ -351,7 +323,6 @@ class iop::service_compliance (
     service_ensure => 'stopped',
     require        => [
       Postgresql::Server::Db[$database_name],
-      Iop::Postgresql_fdw['compliance'],
     ],
     subscribe      => [
       Podman::Secret[$database_username_secret_name],
@@ -374,13 +345,7 @@ class iop::service_compliance (
         'Environment'   => $common_env + [
           'APPLICATION_TYPE=compliance-import-ssg',
         ],
-        'Secret'        => [
-          "${database_username_secret_name},type=env,target=POSTGRES_USER",
-          "${database_password_secret_name},type=env,target=POSTGRES_PASSWORD",
-          "${database_name_secret_name},type=env,target=POSTGRES_DB",
-          "${database_host_secret_name},type=env,target=POSTGRES_HOST",
-          "${database_port_secret_name},type=env,target=POSTGRES_PORT",
-        ],
+        'Secret'        => $common_secrets,
       },
       'Service'   => {
         'Environment' => 'REGISTRY_AUTH_FILE=/etc/foreman/registry-auth.json',

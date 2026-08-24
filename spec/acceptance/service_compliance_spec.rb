@@ -35,12 +35,12 @@ describe 'basic installation' do
       it { is_expected.to be_enabled }
     end
 
-    describe service('iop-service-compl-sidekiq') do
+    describe service('iop-service-compl-inventory-consumer') do
       it { is_expected.to be_running }
       it { is_expected.to be_enabled }
     end
 
-    describe service('iop-service-compl-inventory-consumer') do
+    describe service('iop-service-compl-goodjob') do
       it { is_expected.to be_running }
       it { is_expected.to be_enabled }
     end
@@ -64,32 +64,6 @@ describe 'basic installation' do
       its(:content) { should match /OnUnitActiveSec=5min/ }
       its(:content) { should match /Persistent=true/ }
       its(:content) { should match /WantedBy=timers.target/ }
-    end
-
-    describe 'FDW setup verification' do
-      describe command('sudo -u postgres psql compliance_db -c "SELECT * FROM pg_foreign_server WHERE srvname = \'hbi_server\';"') do
-        its(:stdout) { should match /hbi_server/ }
-        its(:exit_status) { should eq 0 }
-      end
-
-      describe command('sudo -u postgres psql compliance_db -c "SELECT * FROM information_schema.user_mappings WHERE foreign_server_name = \'hbi_server\';"') do
-        its(:stdout) { should match /compliance_admin/ }
-        its(:exit_status) { should eq 0 }
-      end
-
-      describe command('sudo -u postgres psql compliance_db -c "\\det inventory_source.*"') do
-        its(:stdout) { should match /hosts/ }
-        its(:exit_status) { should eq 0 }
-      end
-
-      describe command('sudo -u postgres psql compliance_db -c "\\dv inventory.*"') do
-        its(:stdout) { should match /hosts/ }
-        its(:exit_status) { should eq 0 }
-      end
-
-      describe command('sudo -u postgres psql compliance_db -c "SELECT 1 FROM inventory.hosts LIMIT 1;"') do
-        its(:exit_status) { should eq 0 }
-      end
     end
   end
 
@@ -118,12 +92,12 @@ describe 'basic installation' do
       it { is_expected.not_to be_enabled }
     end
 
-    describe service('iop-service-compl-sidekiq') do
+    describe service('iop-service-compl-inventory-consumer') do
       it { is_expected.not_to be_running }
       it { is_expected.not_to be_enabled }
     end
 
-    describe service('iop-service-compl-inventory-consumer') do
+    describe service('iop-service-compl-goodjob') do
       it { is_expected.not_to be_running }
       it { is_expected.not_to be_enabled }
     end
@@ -150,11 +124,11 @@ describe 'basic installation' do
       it { is_expected.not_to exist }
     end
 
-    describe file('/etc/containers/systemd/iop-service-compl-sidekiq.container') do
+    describe file('/etc/containers/systemd/iop-service-compl-inventory-consumer.container') do
       it { is_expected.not_to exist }
     end
 
-    describe file('/etc/containers/systemd/iop-service-compl-inventory-consumer.container') do
+    describe file('/etc/containers/systemd/iop-service-compl-goodjob.container') do
       it { is_expected.not_to exist }
     end
 
