@@ -48,12 +48,6 @@
 #
 # $remediations_database_password:: Database password for remediations service
 #
-# $compliance_database_name:: Database name for compliance service
-#
-# $compliance_database_user:: Database user for compliance service
-#
-# $compliance_database_password:: Database password for compliance service
-#
 # === Core Engine parameters:
 #
 # $core_engine_log_level_insights_core_dr:: Log level for insights.core.dr logger
@@ -85,9 +79,6 @@ class iop (
   String[1] $remediations_database_name = 'remediations_db',
   String[1] $remediations_database_user = 'remediations_user',
   String[1] $remediations_database_password = $iop::params::remediations_database_password,
-  String[1] $compliance_database_name = 'compliance_db',
-  String[1] $compliance_database_user = 'compliance_admin',
-  String[1] $compliance_database_password = $iop::params::compliance_database_password,
   Enum['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'] $core_engine_log_level_insights_core_dr = 'ERROR',
   Enum['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'] $core_engine_log_level_insights_messaging = 'INFO',
   Enum['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'] $core_engine_log_level_insights_kafka_service = 'INFO',
@@ -151,15 +142,6 @@ class iop (
     database_user     => $remediations_database_user,
     database_password => $remediations_database_password,
   }
-  class { 'iop::service_compliance':
-    ensure            => $ensure,
-    database_host     => $database_host,
-    database_port     => $database_port,
-    database_name     => $compliance_database_name,
-    database_user     => $compliance_database_user,
-    database_password => $compliance_database_password,
-  }
-
   if $register_as_smartproxy {
     $oauth_consumer_key = extlib::cache_data('foreman_cache_data', 'oauth_consumer_key', extlib::random_password(32))
     $oauth_consumer_secret = extlib::cache_data('foreman_cache_data', 'oauth_consumer_secret', extlib::random_password(32))
